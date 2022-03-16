@@ -7,9 +7,8 @@ import (
 	"net/http"
 	"time"
 )
-
 // set a jwt secret key to a config file
-var jwtKey = []byte("my_secret_key")
+//var jwtKey = []byte("my_secret_key")
 
 // create two users and save to DB， as simple, save in the golang map
 var users = map[string]string{
@@ -37,11 +36,11 @@ type JsonResult struct {
 
 // *http.Request表示http请求对象， http.ResonseWriter是一个接口类型
 func Signin(w http.ResponseWriter, r *http.Request)  {
+	var jwtKey = []byte(conf.JwtKey)
 	//creds := Credentials{Password:"123456", Username:"zyh"}
 	// json.Marshal() 编码为json格式
 	//str, _ := json.Marshal(creds)
 	//fmt.Printf("%s\n", str)
-
 	var creds Credentials
 	err := json.NewDecoder(r.Body).Decode(&creds)	//&取址符号
 	if err != nil {
@@ -84,4 +83,74 @@ func Signin(w http.ResponseWriter, r *http.Request)  {
 
 
 	//_, _ = w.Write([]byte("Hello world"))
+}
+
+// 处理认证后的路由 /welcome
+func Welcome (w http.ResponseWriter, r *http.Request) {
+	var jwtKey = []byte(conf.JwtKey)
+	// we can get the token from the request headers, which come with every request, string type
+	token_in_header := r.Header.Get("token")
+	//fmt.Printf("token_in_header:%v, type:%T", token_in_header, token_in_header)
+	if token_in_header == "" {
+		//fmt.Println("token is not in header! please check it!")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	// expire? or valid?
+	claims := &Claims{}
+	tkn, err := jwt.ParseWithClaims(token_in_header, claims, func(token *jwt.Token) (i interface{}, err error) {
+		return jwtKey, nil
+	})
+	//fmt.Println(err)	// signature is invalid      or       token is expired by 2m30s
+	//fmt.Printf("err type:%T\n", err)	// *jwt.ValidationError
+	fmt.Println(tkn.Valid)
+	//fmt.Println(err.Error()=="signature is invalid")	// err to string
+	// expire? or valid?
+	if err != nil{
+		if err.Error()[:16] == "token is expired"{
+			// tell fontend the expired flag
+			_, _ = w.Write([]byte("token is expired"))
+			return
+		}else if err.Error() == "signature is invalid" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+	}
+	// if tkn is vaild, return the welcome message to the user
+	_, _ = w.Write([]byte(fmt.Sprintf("Welcome %s", claims.Username)))
+}
+
+// when fontend receive the token is expired flag, fontend refresh token and storage in local
+func Refresh (w http.ResponseWriter, r *http.Request) {
+	var jwtKey = []byte(conf.JwtKey)
+	//fmt.Println(conf.JwtKey)
+	// expire token is exist
+	token_in_header := r.Header.Get("token")
+	if token_in_header == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	// expire? or valid?
+	claims := &Claims{}
+	_, err := jwt.ParseWithClaims(token_in_header, claims, func(token *jwt.Token) (i interface{}, err error) {
+		return jwtKey, nil
+	})
+	if err != nil{
+		if err.Error() == "signature is invalid" {
+			w.WriteHeader(http.StatusUnauthorized)
+		}else if err.Error()[:16] == "token is expired" {
+			expirationTime := time.Now().Add(5 * time.Minute)
+			claims.ExpiresAt = expirationTime.Unix()
+			token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+			tokenString, err := token.SignedString(jwtKey)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			// return the new tokenString to fountend
+			msg, _ := json.Marshal(JsonResult{Code:200, Token:tokenString})
+			_, _ = w.Write(msg)
+		}
+	}
 }

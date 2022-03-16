@@ -4,12 +4,13 @@ import (
 	"log"
 	"net/http"
 )
-
+var conf Conf
 func main() {
+	conf.getConf()
 	// "Signin" and "Welcome" are the handlers that we will implement
 	http.HandleFunc("/signin", logging(Signin))
-	//http.HandleFunc("/welcome", Welcome)
-	//http.HandleFunc("/refresh", Refresh)
+	http.HandleFunc("/welcome", logging(Welcome))
+	http.HandleFunc("/refresh", logging(Refresh))
 
 	// start the http server on port 8000
 	log.Fatal(http.ListenAndServe(":8000", nil))
